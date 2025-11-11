@@ -1,6 +1,8 @@
 import configparser
 import argparse
 import os
+import re
+
 import ollama
 import yt_dlp
 
@@ -20,7 +22,9 @@ def main(args):
     # Download subtitles
     info_dict = yt_dlp.YoutubeDL().extract_info(url, download=False)
     video_title = info_dict.get('title', None)
-    video_title = "".join(c for c in video_title if c.isalnum() or c in (' ', '.', '_')).rstrip()
+    # video_title = "".join(c for c in video_title if c.isalnum() or c in (' ', '.', '_')).rstrip()
+    video_title = re.sub(r'[^A-Za-z0-9 ]+', '', video_title)
+
     subtitle_file = f"{output_dir}/{video_title}"
 
     ydl_opts = {
