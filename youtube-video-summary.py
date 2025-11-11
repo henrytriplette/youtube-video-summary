@@ -18,22 +18,25 @@ def main(args):
         os.makedirs(output_dir)
     
     # Download subtitles
+    info_dict = yt_dlp.YoutubeDL().extract_info(url, download=False)
+    video_title = info_dict.get('title', None)
+    video_title = "".join(c for c in video_title if c.isalnum() or c in (' ', '.', '_')).rstrip()
+    subtitle_file = f"{output_dir}/{video_title}"
+
     ydl_opts = {
         'skip_download': True,  # Don't download the video itself
         'writesubtitles': True,  # Download subtitles
         'writeautomaticsub': True,  # Also download auto-generated subtitles if available
         'subtitleslangs': ['en'],  # Change language code(s) as needed
         'subtitlesformat': 'vtt',  # Format of subtitles (vtt, srt, etc.)
-        'outtmpl': f'{output_dir}/%(title)s.%(ext)s' 
+        'outtmpl': subtitle_file 
     }
     
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info_dict = ydl.extract_info(url, download=False)
-        video_title = info_dict.get('title', None)
-        subtitle_file = f"{output_dir}/{video_title}.en.vtt"
         ydl.download([url])
     
     # Read subtitles
+    subtitle_file = f"{output_dir}/{video_title}.en.vtt"
     with open(subtitle_file, 'r', encoding='utf-8') as f:
         subtitles = f.read()
     
