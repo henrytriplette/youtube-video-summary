@@ -19,23 +19,31 @@ def main(args):
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
     
-    # Download subtitles
-    info_dict = yt_dlp.YoutubeDL().extract_info(url, download=False)
+    # Fetch video info to get title
+    ydl_opts = {
+        'skip_download': True,  # Don't download the video itself
+        'player_client': 'web',
+        'cookiefile': config.get('DEFAULT', 'cookie_file', fallback=None),
+    }
+    info_dict = yt_dlp.YoutubeDL(ydl_opts).extract_info(url, download=False)
     video_title = info_dict.get('title', None)
     # video_title = "".join(c for c in video_title if c.isalnum() or c in (' ', '.', '_')).rstrip()
     video_title = re.sub(r'[^A-Za-z0-9 ]+', '', video_title)
 
     subtitle_file = f"{output_dir}/{video_title}"
 
+    # Download subtitles
     ydl_opts = {
         'skip_download': True,  # Don't download the video itself
         'writesubtitles': True,  # Download subtitles
         'writeautomaticsub': True,  # Also download auto-generated subtitles if available
         'subtitleslangs': ['en'],  # Change language code(s) as needed
         'subtitlesformat': 'vtt',  # Format of subtitles (vtt, srt, etc.)
-        'outtmpl': subtitle_file 
+        'outtmpl': subtitle_file,
+        'player_client': 'web',
+        'cookiefile': config.get('DEFAULT', 'cookie_file', fallback=None),
     }
-    
+ 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         ydl.download([url])
     

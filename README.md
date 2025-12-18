@@ -54,3 +54,7 @@ Perfect for extracting key insights from long videos like lectures, interviews, 
 - Python 3.8+
 - Ollama
 - Internet access
+
+## Export Youtube Cookies
+
+Use [get-cookiestxt-locally](https://chromewebstore.google.com/detail/get-cookiestxt-locally)
