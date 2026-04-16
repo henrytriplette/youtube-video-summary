@@ -13,15 +13,19 @@ config.read("config.ini")
 def main(args):
     url = args.url
     output_dir = config.get('DEFAULT', 'output_dir', fallback='output')
+    subtitles_dir = config.get('DEFAULT', 'subtitles_dir', fallback='subtitles')
     ai_model = config.get('AI', 'ai_model', fallback='qwen3:30b')
     
     # Create output directory if it doesn't exist
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
+    if not os.path.exists(subtitles_dir):
+        os.makedirs(subtitles_dir)
     
     # Fetch video info to get title
     ydl_opts = {
         'skip_download': True,  # Don't download the video itself
+        'ignore_no_formats_error': True,
         'player_client': 'web',
         'cookiefile': config.get('DEFAULT', 'cookie_file', fallback=None),
     }
@@ -30,15 +34,16 @@ def main(args):
     # video_title = "".join(c for c in video_title if c.isalnum() or c in (' ', '.', '_')).rstrip()
     video_title = re.sub(r'[^A-Za-z0-9 ]+', '', video_title)
 
-    subtitle_file = f"{output_dir}/{video_title}"
+    subtitle_file = f"{subtitles_dir}/{video_title}"
 
     # Download subtitles
     ydl_opts = {
         'skip_download': True,  # Don't download the video itself
+        'ignore_no_formats_error': True,
         'writesubtitles': True,  # Download subtitles
         'writeautomaticsub': True,  # Also download auto-generated subtitles if available
         'subtitleslangs': ['en'],  # Change language code(s) as needed
-        'subtitlesformat': 'vtt',  # Format of subtitles (vtt, srt, etc.)
+        'subtitlesformat': 'ass/srt/best',  # Format of subtitles (vtt, srt, etc.)
         'outtmpl': subtitle_file,
         'player_client': 'web',
         'cookiefile': config.get('DEFAULT', 'cookie_file', fallback=None),
@@ -48,7 +53,17 @@ def main(args):
         ydl.download([url])
     
     # Read subtitles
-    subtitle_file = f"{output_dir}/{video_title}.en.vtt"
+    subtitle_file = None
+    for ext in ['.en.vtt', '.en.srt', '.en.ass', '.en.srv3']:
+        candidate = f"{subtitles_dir}/{video_title}{ext}"
+        if os.path.exists(candidate):
+            subtitle_file = candidate
+            break
+
+    if not subtitle_file:
+        print("No subtitle file found.")
+        return
+
     with open(subtitle_file, 'r', encoding='utf-8') as f:
         subtitles = f.read()
     
@@ -61,6 +76,10 @@ def main(args):
         line = ''.join(part for part in line.split('<') if '>' not in part)
         if line.strip():
             cleaned_subtitles.append(line)
+        # Remove line with only number and space above
+        if re.match(r'^\d+\s*$', line):
+            continue
+
     
     # Deduplicate consecutive lines
     deduped_subtitles = []
@@ -85,12 +104,14 @@ def main(args):
         return
     
     # Summarize using AI model
+    ai_base_url = config.get('AI', 'base_url', fallback='http://127.0.0.1:11434')
+    client = ollama.Client(host=ai_base_url)
     try:
         response = ""
         
         # Start streaming from the model
         prompt = f"Summarize the following script by focusing on the relevant points:\n\n{printed_subtitles}"
-        stream = ollama.chat(
+        stream = client.chat(
             model=ai_model,
             messages=[{"role": "user", "content": prompt}],
             stream=True  # Enable streaming mode
@@ -108,7 +129,7 @@ def main(args):
     except ollama.ResponseError as e:
         print('Error:', e.error)
         if e.status_code == 404:
-            ollama.pull(ai_model)
+            client.pull(ai_model)
    
     # Save summary to file
     summary_file = f"{output_dir}/{video_title}_summary.txt"

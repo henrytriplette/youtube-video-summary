@@ -58,3 +58,9 @@ Perfect for extracting key insights from long videos like lectures, interviews, 
 ## Export Youtube Cookies
 
 Use [get-cookiestxt-locally](https://chromewebstore.google.com/detail/get-cookiestxt-locally)
+
+## Upgrade packages
+
+   ```bash
+   pip install --upgrade -r requirements.txt
+   ```
