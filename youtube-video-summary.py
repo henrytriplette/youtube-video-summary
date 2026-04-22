@@ -14,6 +14,7 @@ def main(args):
     url = args.url
     output_dir = config.get('DEFAULT', 'output_dir', fallback='output')
     subtitles_dir = config.get('DEFAULT', 'subtitles_dir', fallback='subtitles')
+    audio_dir = config.get('DEFAULT', 'audio_dir', fallback='audio')
     ai_model = config.get('AI', 'ai_model', fallback='qwen3:30b')
     
     # Create output directory if it doesn't exist
@@ -21,6 +22,8 @@ def main(args):
         os.makedirs(output_dir)
     if not os.path.exists(subtitles_dir):
         os.makedirs(subtitles_dir)
+    if not os.path.exists(audio_dir):
+        os.makedirs(audio_dir)
     
     # Fetch video info to get title
     ydl_opts = {
@@ -34,68 +37,101 @@ def main(args):
     # video_title = "".join(c for c in video_title if c.isalnum() or c in (' ', '.', '_')).rstrip()
     video_title = re.sub(r'[^A-Za-z0-9 ]+', '', video_title)
 
-    subtitle_file = f"{subtitles_dir}/{video_title}"
+    has_subs = bool(info_dict.get('subtitles')) or bool(info_dict.get('automatic_captions'))
+    if not has_subs:
+        print("No subtitles found. Downloading audio...")
+        ydl_audio_opts = {
+            'format': 'bestaudio/best',
+            'outtmpl': f"{audio_dir}/{video_title}.%(ext)s",
+            'postprocessors': [{
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'mp3',
+                'preferredquality': '192',
+            }],
+            'player_client': 'web',
+            'cookiefile': config.get('DEFAULT', 'cookie_file', fallback=None),
+        }
+        with yt_dlp.YoutubeDL(ydl_audio_opts) as ydl:
+            ydl.download([url])
+        
+        try:
+            import whisper
+        except ImportError:
+            print("Whisper not installed. pip install openai-whisper")
+            return
+            
+        print("Transcribing audio...")
+        model = whisper.load_model("base")
+        result = model.transcribe(f"{audio_dir}/{video_title}.mp3")
+        printed_subtitles = result["text"]
+        
+        subtitle_file = f"{subtitles_dir}/{video_title}.txt"
+        with open(subtitle_file, 'w', encoding='utf-8') as f:
+            f.write(printed_subtitles)
+        print(f"Transcription saved to {subtitle_file}")
 
-    # Download subtitles
-    ydl_opts = {
-        'skip_download': True,  # Don't download the video itself
-        'ignore_no_formats_error': True,
-        'writesubtitles': True,  # Download subtitles
-        'writeautomaticsub': True,  # Also download auto-generated subtitles if available
-        'subtitleslangs': ['en'],  # Change language code(s) as needed
-        'subtitlesformat': 'ass/srt/best',  # Format of subtitles (vtt, srt, etc.)
-        'outtmpl': subtitle_file,
-        'player_client': 'web',
-        'cookiefile': config.get('DEFAULT', 'cookie_file', fallback=None),
-    }
- 
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        ydl.download([url])
-    
-    # Read subtitles
-    subtitle_file = None
-    for ext in ['.en.vtt', '.en.srt', '.en.ass', '.en.srv3']:
-        candidate = f"{subtitles_dir}/{video_title}{ext}"
-        if os.path.exists(candidate):
-            subtitle_file = candidate
-            break
+    else:
+        subtitle_file = f"{subtitles_dir}/{video_title}"
 
-    if not subtitle_file:
-        print("No subtitle file found.")
-        return
+        # Download subtitles
+        ydl_opts = {
+            'skip_download': True,  # Don't download the video itself
+            'ignore_no_formats_error': True,
+            'writesubtitles': True,  # Download subtitles
+            'writeautomaticsub': True,  # Also download auto-generated subtitles if available
+            'subtitleslangs': ['en'],  # Change language code(s) as needed
+            'subtitlesformat': 'ass/srt/best',  # Format of subtitles (vtt, srt, etc.)
+            'outtmpl': subtitle_file,
+            'player_client': 'web',
+            'cookiefile': config.get('DEFAULT', 'cookie_file', fallback=None),
+        }
+     
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([url])
+        
+        # Read subtitles
+        subtitle_file = None
+        for ext in ['.en.vtt', '.en.srt', '.en.ass', '.en.srv3']:
+            candidate = f"{subtitles_dir}/{video_title}{ext}"
+            if os.path.exists(candidate):
+                subtitle_file = candidate
+                break
 
-    with open(subtitle_file, 'r', encoding='utf-8') as f:
-        subtitles = f.read()
-    
-    # Clean subtitles (remove VTT headers and timestamps)
-    cleaned_subtitles = []
-    for line in subtitles.splitlines():
-        if line.strip() == '' or line.startswith('WEBVTT') or '-->' in line:
-            continue
-        # Remove content within angle brackets (HTML tags)
-        line = ''.join(part for part in line.split('<') if '>' not in part)
-        if line.strip():
-            cleaned_subtitles.append(line)
-        # Remove line with only number and space above
-        if re.match(r'^\d+\s*$', line):
-            continue
+        if not subtitle_file:
+            print("No subtitle file found.")
+            return
 
-    
-    # Deduplicate consecutive lines
-    deduped_subtitles = []
-    previous_line = None
-    for line in cleaned_subtitles:
-        if line != previous_line:
-            deduped_subtitles.append(line)
-            previous_line = line
+        with open(subtitle_file, 'r', encoding='utf-8') as f:
+            subtitles = f.read()
+        
+        # Clean subtitles (remove VTT headers and timestamps)
+        cleaned_subtitles = []
+        for line in subtitles.splitlines():
+            if line.strip() == '' or line.startswith('WEBVTT') or '-->' in line:
+                continue
+            # Remove content within angle brackets (HTML tags)
+            line = ''.join(part for part in line.split('<') if '>' not in part)
+            if line.strip():
+                cleaned_subtitles.append(line)
+            # Remove line with only number and space above
+            if re.match(r'^\d+\s*$', line):
+                continue
 
-    # Check if current line is equal to the beginning of the following line
-    for i in range(len(deduped_subtitles) - 1):
-        if deduped_subtitles[i+1].startswith(deduped_subtitles[i]):
-            deduped_subtitles[i] = ''  # Mark for removal
-    deduped_subtitles = [line for line in deduped_subtitles if line != '']
+        # Deduplicate consecutive lines
+        deduped_subtitles = []
+        previous_line = None
+        for line in cleaned_subtitles:
+            if line != previous_line:
+                deduped_subtitles.append(line)
+                previous_line = line
 
-    printed_subtitles = ' '.join(deduped_subtitles)
+        # Check if current line is equal to the beginning of the following line
+        for i in range(len(deduped_subtitles) - 1):
+            if deduped_subtitles[i+1].startswith(deduped_subtitles[i]):
+                deduped_subtitles[i] = ''  # Mark for removal
+        deduped_subtitles = [line for line in deduped_subtitles if line != '']
+
+        printed_subtitles = ' '.join(deduped_subtitles)
     # print("Extracted Subtitles:\n", printed_subtitles)
     
     #  Check if AI summarization is enabled
@@ -143,7 +179,8 @@ def main(args):
         print(f"Summary saved to {summary_file}")
     
     # Cleanup subtitle file
-    os.remove(subtitle_file)
+    if subtitle_file and os.path.exists(subtitle_file):
+        os.remove(subtitle_file)
     
 if __name__ == "__main__":  
     parser = argparse.ArgumentParser(description='Download YouTube Subtitles and Summarize')
