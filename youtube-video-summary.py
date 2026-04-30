@@ -10,6 +10,74 @@ import yt_dlp
 config = configparser.ConfigParser()
 config.read("config.ini")
 
+def transcribe_file(args):
+    audio_path = args.file
+    language = args.language
+    output_dir = config.get('DEFAULT', 'output_dir', fallback='output')
+    ai_model = config.get('AI', 'ai_model', fallback='qwen3:30b')
+
+    if not os.path.exists(audio_path):
+        print(f"File not found: {audio_path}")
+        return
+
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
+    try:
+        import whisper
+    except ImportError:
+        print("Whisper not installed. pip install openai-whisper")
+        return
+
+    print(f"Transcribing {audio_path}...")
+    model = whisper.load_model("large")
+    transcribe_opts = {}
+    if language:
+        transcribe_opts['language'] = language
+    result = model.transcribe(audio_path, **transcribe_opts)
+    printed_subtitles = result["text"]
+
+    video_title = re.sub(r'[^A-Za-z0-9 ]+', '', os.path.splitext(os.path.basename(audio_path))[0])
+
+    if config.getboolean('AI', 'ai_enable', fallback=False) == False:
+        print("AI summarization disabled. Saving transcription only.")
+        out_file = f"{output_dir}/{video_title}_transcription.txt"
+        with open(out_file, 'w', encoding='utf-8') as f:
+            f.write(printed_subtitles)
+        print(f"Transcription saved to {out_file}")
+        return
+
+    ai_base_url = config.get('AI', 'base_url', fallback='http://127.0.0.1:11434')
+    client = ollama.Client(host=ai_base_url)
+    try:
+        response = ""
+        prompt = f"Summarize the following script by focusing on the relevant points:\n\n{printed_subtitles}"
+        stream = client.chat(
+            model=ai_model,
+            messages=[{"role": "user", "content": prompt}],
+            stream=True
+        )
+        print("Streaming response:\n")
+        for chunk in stream:
+            content = chunk.get("message", {}).get("content", "")
+            if content:
+                print(content, end="", flush=True)
+                response += content
+        print("\n\n--- Stream complete ---")
+    except ollama.ResponseError as e:
+        print('Error:', e.error)
+        if e.status_code == 404:
+            client.pull(ai_model)
+
+    summary_file = f"{output_dir}/{video_title}_summary.txt"
+    with open(summary_file, 'w', encoding='utf-8') as f:
+        f.write("\n\n--- Summary ---\n\n")
+        f.write(response)
+        f.write("\n\n--- Original Subtitles ---\n\n")
+        f.write(printed_subtitles)
+    print(f"Summary saved to {summary_file}")
+
+
 def main(args):
     url = args.url
     output_dir = config.get('DEFAULT', 'output_dir', fallback='output')
@@ -62,7 +130,10 @@ def main(args):
             
         print("Transcribing audio...")
         model = whisper.load_model("base")
-        result = model.transcribe(f"{audio_dir}/{video_title}.mp3")
+        transcribe_opts = {}
+        if args.language:
+            transcribe_opts['language'] = args.language
+        result = model.transcribe(f"{audio_dir}/{video_title}.mp3", **transcribe_opts)
         printed_subtitles = result["text"]
         
         subtitle_file = f"{subtitles_dir}/{video_title}.txt"
@@ -184,7 +255,13 @@ def main(args):
     
 if __name__ == "__main__":  
     parser = argparse.ArgumentParser(description='Download YouTube Subtitles and Summarize')
-    parser.add_argument('-u', '--url', help='YouTube Video URL', required=True)
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument('-u', '--url', help='YouTube Video URL')
+    group.add_argument('-f', '--file', help='Path to a local audio file (e.g. wav, mp3) to transcribe')
+    parser.add_argument('-l', '--language', help='Language code for Whisper transcription (e.g. en, ja, de)', default=None)
     
     args = parser.parse_args()
-    main(args)
+    if args.file:
+        transcribe_file(args)
+    else:
+        main(args)
