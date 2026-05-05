@@ -47,6 +47,12 @@ def transcribe_file(args):
         print(f"Transcription saved to {out_file}")
         return
 
+    if config.getboolean('TRANSCRIPTION', 'save_transcription', fallback=False) == True:
+        out_file = f"{output_dir}/{video_title}_transcription.txt"
+        with open(out_file, 'w', encoding='utf-8') as f:
+            f.write(printed_subtitles)
+        print(f"Transcription saved to {out_file}")
+
     ai_base_url = config.get('AI', 'base_url', fallback='http://127.0.0.1:11434')
     client = ollama.Client(host=ai_base_url)
     try:
@@ -68,6 +74,12 @@ def transcribe_file(args):
         print('Error:', e.error)
         if e.status_code == 404:
             client.pull(ai_model)
+            print(f"Model {ai_model} pulled successfully. Please retry.")
+        out_file = f"{output_dir}/{video_title}_transcription.txt"
+        with open(out_file, 'w', encoding='utf-8') as f:
+            f.write(printed_subtitles)
+        print(f"AI failed. Transcription saved to {out_file}")
+        return
 
     summary_file = f"{output_dir}/{video_title}_summary.txt"
     with open(summary_file, 'w', encoding='utf-8') as f:
@@ -129,7 +141,7 @@ def main(args):
             return
             
         print("Transcribing audio...")
-        model = whisper.load_model("base")
+        model = whisper.load_model("large")
         transcribe_opts = {}
         if args.language:
             transcribe_opts['language'] = args.language
@@ -237,6 +249,12 @@ def main(args):
         print('Error:', e.error)
         if e.status_code == 404:
             client.pull(ai_model)
+            
+        out_file = f"{output_dir}/{video_title}_transcription.txt"
+        with open(out_file, 'w', encoding='utf-8') as f:
+            f.write(printed_subtitles)
+        print(f"AI failed. Transcription saved to {out_file}")
+        return
    
     # Save summary to file
     summary_file = f"{output_dir}/{video_title}_summary.txt"
