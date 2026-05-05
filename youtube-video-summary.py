@@ -113,7 +113,7 @@ def main(args):
         'cookiefile': config.get('DEFAULT', 'cookie_file', fallback=None),
     }
     info_dict = yt_dlp.YoutubeDL(ydl_opts).extract_info(url, download=False)
-    video_title = info_dict.get('title', None)
+    video_title = info_dict.get('title', 'Unknown Video')
     # video_title = "".join(c for c in video_title if c.isalnum() or c in (' ', '.', '_')).rstrip()
     video_title = re.sub(r'[^A-Za-z0-9 ]+', '', video_title)
 
